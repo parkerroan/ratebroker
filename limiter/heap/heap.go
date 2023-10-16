@@ -13,6 +13,7 @@ type HeapLimiter struct {
 	mutex  sync.Mutex
 }
 
+
 // NewHeapLimiter creates a HeapLimiter.
 func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 	pq := make(priorityQueue, 0, size)
@@ -24,7 +25,7 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 }
 
 // TryAccept implements the Limiter interface for the HeapLimiter.
-func (hl *HeapLimiter) Allowed(now time.Time) bool {
+func (hl *HeapLimiter) Try(now time.Time) bool {
 	hl.mutex.Lock()
 	defer hl.mutex.Unlock()
 	// Remove the timestamps that are out of the window range.
