@@ -2,6 +2,7 @@ package heap
 
 import (
 	"container/heap"
+	"sync"
 	"time"
 )
 
@@ -9,6 +10,7 @@ import (
 type HeapLimiter struct {
 	pq     priorityQueue
 	window time.Duration
+	mutex  sync.Mutex
 }
 
 // NewHeapLimiter creates a HeapLimiter.
@@ -22,7 +24,9 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 }
 
 // TryAccept implements the Limiter interface for the HeapLimiter.
-func (hl *HeapLimiter) TryAccept(now time.Time) bool {
+func (hl *HeapLimiter) Allowed(now time.Time) bool {
+	hl.mutex.Lock()
+	defer hl.mutex.Unlock()
 	// Remove the timestamps that are out of the window range.
 	for hl.pq.Len() > 0 && now.Sub(hl.pq[0].timestamp) > hl.window {
 		heap.Pop(&hl.pq)
@@ -34,11 +38,20 @@ func (hl *HeapLimiter) TryAccept(now time.Time) bool {
 		return false
 	}
 
-	// There's room for another request, so we add the new timestamp.
+	// // There's room for another request, so we add the new timestamp.
+	// item := &item{
+	// 	timestamp: now,
+	// }
+	// heap.Push(&hl.pq, item)
+
+	return true
+}
+
+func (hl *HeapLimiter) Accept(now time.Time) {
+	hl.mutex.Lock()
+	defer hl.mutex.Unlock()
 	item := &item{
 		timestamp: now,
 	}
 	heap.Push(&hl.pq, item)
-
-	return true
 }
