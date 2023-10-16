@@ -1,4 +1,4 @@
-package ratebroker
+package ring
 
 import (
 	"container/ring"

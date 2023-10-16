@@ -5,27 +5,30 @@ import (
 	"time"
 
 	"github.com/parkerroan/ratebroker"
+	"github.com/parkerroan/ratebroker/limiter"
+	"github.com/parkerroan/ratebroker/limiter/heap"
+	"github.com/parkerroan/ratebroker/limiter/ring"
 )
 
 func TestRateLimiter(t *testing.T) {
 	// Define the configuration for each test case.
 	testCases := []struct {
 		description      string
-		limiter          ratebroker.Limiter
+		limiter          limiter.Limiter
 		numRequests      int
 		expectedDenials  int
 		sleepBetweenReqs time.Duration // Sleep duration between requests.
 	}{
 		{
 			description:      "Ring limiter should deny expected number of requests",
-			limiter:          ratebroker.NewRingLimiter(5, 2*time.Second),
+			limiter:          ring.NewRingLimiter(5, 2*time.Second),
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
 		},
 		{
 			description:      "Heap limiter should deny expected number of requests",
-			limiter:          ratebroker.NewHeapLimiter(5, 2*time.Second),
+			limiter:          heap.NewHeapLimiter(5, 2*time.Second),
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
