@@ -14,7 +14,6 @@ import (
 )
 
 // Option is a function that can be passed into NewRateBroker to configure the RateBroker.
-// Can also be chained together.
 type Option func(*RateBroker)
 
 // NewLimiterFunc is a function that creates a new limiter.
@@ -65,7 +64,12 @@ func NewRateBroker(opts ...Option) *RateBroker {
 	return rb
 }
 
-// WithID sets the ID for the RateBroker.
+// WithBroker sets the broker for the RateBroker.
+//
+// If no broker is provided, the RateBroker will not publish events
+// to the message broker.
+//
+// Instead it will use the local limiter to enforce rate limits without distribution.
 func WithBroker(broker broker.Broker) Option {
 	return func(rb *RateBroker) {
 		rb.broker = broker
