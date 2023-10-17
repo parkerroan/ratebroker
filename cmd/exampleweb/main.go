@@ -7,18 +7,18 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/parkerroan/ratebroker"
 	"github.com/parkerroan/ratebroker/broker"
-	"github.com/parkerroan/ratebroker/limiter"
 
 	"golang.org/x/exp/slog"
 )
 
 type Config struct {
 	Port        int    `envconfig:"SERVER_PORT" default:"8080"`
-	MaxRequests int    `envconfig:"MAX_REQUESTS" default:"100"`
+	MaxRequests int    `envconfig:"MAX_REQUESTS" default:"5"`
 	Window      string `envconfig:"WINDOW_DURATION" default:"1m"` // This can be time.Duration if you want the library to handle parsing
 	RedisURL    string `envconfig:"REDIS_URL" default:"redis://localhost:6379"`
 	// ... other configuration variables
@@ -37,17 +37,24 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	// Create instances of your broker and limiter
-	redisBroker := broker.NewRedisBroker(cfg.RedisURL)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: cfg.RedisURL, // "localhost:6379"
+	})
 
-	// Create a rate broker
-	rateBroker := ratebroker.NewRateBroker(redisBroker, limiter.NewRingLimiter, ratebroker.WithMaxRequests(30))
+	// Create instances of your broker and limiter
+	redisBroker := broker.NewRedisBroker(rdb)
+
+	// Create a rate broker w/ ring limiter
+	rateBroker := ratebroker.NewRateBroker(redisBroker, ratebroker.WithMaxRequests(cfg.MaxRequests))
 
 	rateBroker.Start(context.Background())
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Use your rate broker to check or enforce rate limits
-		if !rateBroker.TryAccept("test-user") {
+		// TODO get user ID from request
+		userKey := r.Header.Get("X-User-ID")
+
+		if !rateBroker.TryAccept(userKey) {
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return
 		}

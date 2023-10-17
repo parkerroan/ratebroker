@@ -3,7 +3,8 @@ services:
   web:
     image: local-images/exampleweb:1.0.0
     environment:
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis:6379
+      - MAX_REQUESTS=5
     deploy:
       replicas: 3 # specify the number of replicas you want
       update_config:

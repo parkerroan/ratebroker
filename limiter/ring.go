@@ -1,4 +1,4 @@
-package ring
+package limiter
 
 import (
 	"container/ring"
@@ -13,7 +13,13 @@ type RingLimiter struct {
 	mutex  sync.Mutex
 }
 
-// NewRingLimiter creates a RingLimiter.
+func NewRingLimiterConstructorFunc() func(int, time.Duration) Limiter {
+	return func(size int, window time.Duration) Limiter {
+		return NewRingLimiter(size, window)
+	}
+}
+
+// NewRingLimiterInstance creates a RingLimiter.
 func NewRingLimiter(size int, window time.Duration) *RingLimiter {
 	r := ring.New(size)
 	return &RingLimiter{

@@ -6,29 +6,39 @@ import (
 	"time"
 
 	"github.com/dgraph-io/ristretto"
+	"github.com/google/uuid"
 	"github.com/parkerroan/ratebroker/broker"
 	"github.com/parkerroan/ratebroker/limiter"
 	"golang.org/x/exp/slog"
+	"golang.org/x/sync/semaphore"
 )
 
 // Option is a function that can be passed into NewRateBroker to configure the RateBroker.
 // Can also be chained together.
 type Option func(*RateBroker)
 
+// NewLimiterFunc is a function that creates a new limiter.
+type NewLimiterFunc func(int, time.Duration) limiter.Limiter
+
 // RateBroker is the main structure that will use a Limiter to enforce rate limits.
 type RateBroker struct {
+	id             string
 	broker         broker.Broker
-	newLimiterFunc limiter.NewLimiterFunc
+	newLimiterFunc NewLimiterFunc
 	maxRequests    int
 	window         time.Duration
 	cache          *ristretto.Cache
+	maxThreads     int
+	sem            *semaphore.Weighted
 }
 
 // NewRateBroker creates a RateLimiter with the provided Limiter.
-func NewRateBroker(broker broker.Broker, newLimiterFunc limiter.NewLimiterFunc, opts ...Option) *RateBroker {
+func NewRateBroker(broker broker.Broker, opts ...Option) *RateBroker {
 
+	//Defaults
 	rb := &RateBroker{
-		newLimiterFunc: newLimiterFunc,
+		id:             uuid.NewString(),
+		newLimiterFunc: limiter.NewRingLimiterConstructorFunc(),
 		broker:         broker,
 		maxRequests:    30,
 		window:         10 * time.Second,
@@ -55,6 +65,13 @@ func NewRateBroker(broker broker.Broker, newLimiterFunc limiter.NewLimiterFunc, 
 	return rb
 }
 
+// WithID sets the ID for the RateBroker.
+func WithID(id string) Option {
+	return func(rb *RateBroker) {
+		rb.id = id
+	}
+}
+
 // WithMaxRequests sets the maximum number of requests allowed for the RateBroker.
 func WithMaxRequests(max int) Option {
 	return func(rb *RateBroker) {
@@ -62,10 +79,26 @@ func WithMaxRequests(max int) Option {
 	}
 }
 
+// WithMaxThreads sets the maximum number of threads allowed for publishing events
+// to the message broker.
+func WithMaxThreads(maxThreads int) Option {
+	return func(rb *RateBroker) {
+		rb.maxThreads = maxThreads
+		rb.sem = semaphore.NewWeighted(int64(maxThreads))
+	}
+}
+
 // WithWindow sets the time window for the RateBroker.
 func WithWindow(window time.Duration) Option {
 	return func(rb *RateBroker) {
 		rb.window = window
+	}
+}
+
+// WithLimiterContructorFunc sets the function used to create a new limiter.
+func WithLimiterContructorFunc(limiterFunc NewLimiterFunc) Option {
+	return func(rb *RateBroker) {
+		rb.newLimiterFunc = limiterFunc
 	}
 }
 
@@ -91,8 +124,9 @@ func (rb *RateBroker) TryAccept(key string) bool {
 	}
 
 	message := broker.Message{
+		BrokerID:  rb.id,
 		Event:     broker.RequestAccepted,
-		Timestamp: time.Now(),
+		Timestamp: now,
 		Key:       key,
 	}
 
@@ -102,6 +136,29 @@ func (rb *RateBroker) TryAccept(key string) bool {
 	}
 
 	return true
+}
+
+func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) error {
+	var deferFunc func()
+	if rb.sem != nil {
+		deferFunc = func() {
+			rb.sem.Release(1)
+		}
+		if err := rb.sem.Acquire(ctx, 1); err != nil {
+			slog.Error("Failed to acquire semaphore", slog.Any("error", err.Error()))
+			return err
+		}
+	}
+
+	go func() {
+		defer deferFunc()
+		err := rb.broker.Publish(context.Background(), msg)
+		if err != nil {
+			slog.Error("error publishing message", slog.Any("error", err.Error()))
+		}
+	}()
+
+	return nil
 }
 
 // BrokerHandleFunc is passed into the broker to handle incoming messages

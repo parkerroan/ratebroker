@@ -12,11 +12,7 @@ type RedisBroker struct {
 	client *redis.Client
 }
 
-func NewRedisBroker(redisURL string) *RedisBroker {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: redisURL, // "localhost:6379"
-	})
-
+func NewRedisBroker(rdb *redis.Client) *RedisBroker {
 	return &RedisBroker{
 		client: rdb,
 		stream: "ratebroker",
@@ -33,9 +29,16 @@ func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
 	// Here you would publish the message to the Redis stream.
 	// The actual implementation depends on your use case.
 	// This is a very basic example.
+	values := map[string]interface{}{
+		"broker_id": message.BrokerID,
+		"event":     message.Event,
+		"timestamp": message.Timestamp,
+		"key":       message.Key,
+	}
+
 	return r.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: r.stream,
-		Values: message,
+		Values: values,
 	}).Err()
 }
 
@@ -65,10 +68,11 @@ func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) er
 		// Process messages if any.
 		for _, message := range messages {
 			for _, xMessage := range message.Messages {
-				var msg Message
+				bstr, _ := json.Marshal(xMessage.Values)
 
+				var msg Message
 				// Deserialize the message
-				if err := json.Unmarshal([]byte(xMessage.Values["message"].(string)), &msg); err != nil {
+				if err := json.Unmarshal(bstr, &msg); err != nil {
 					return err // Handle deserialization error
 				}
 

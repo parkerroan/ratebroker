@@ -12,7 +12,7 @@ func TestRateLimiter(t *testing.T) {
 	// Define the configuration for each test case.
 	testCases := []struct {
 		description      string
-		limiterFunc      limiter.NewLimiterFunc
+		limiterFunc      ratebroker.NewLimiterFunc
 		window           time.Duration
 		rate             int
 		numRequests      int
@@ -21,14 +21,14 @@ func TestRateLimiter(t *testing.T) {
 	}{
 		{
 			description:      "Ring limiter should deny expected number of requests",
-			limiterFunc:      limiter.NewRingLimiter,
+			limiterFunc:      limiter.NewRingLimiterConstructorFunc(),
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
 		},
 		{
 			description:      "Heap limiter should deny expected number of requests",
-			limiterFunc:      limiter.NewHeapLimiter,
+			limiterFunc:      limiter.NewHeapLimiterConstructorFunc(),
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
@@ -38,7 +38,7 @@ func TestRateLimiter(t *testing.T) {
 	// Iterate through each test case.
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			rb := ratebroker.NewRateBroker(nil, tc.limiterFunc)
+			rb := ratebroker.NewRateBroker(nil, ratebroker.WithLimiterContructorFunc(tc.limiterFunc))
 
 			denied := 0
 			for i := 0; i < tc.numRequests; i++ {

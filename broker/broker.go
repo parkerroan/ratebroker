@@ -12,6 +12,7 @@ const (
 
 // Message represents the structure of the data that will be sent through the broker.
 type Message struct {
+	BrokerID  string    `json:"broker_id"` // The ID of the broker
 	Event     string    `json:"event"`     // Type of event, e.g., "request_accepted"
 	Timestamp time.Time `json:"timestamp"` // When the event occurred
 	Key       string    `json:"key"`       // The key of the request, e.g., IP, UserID, etc.
