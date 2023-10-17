@@ -9,6 +9,7 @@ import (
 // RingLimiter is an implementation of the Limiter interface using a ring buffer.
 type RingLimiter struct {
 	ring   *ring.Ring
+	size   int
 	window time.Duration
 	mutex  sync.Mutex
 }
@@ -23,6 +24,7 @@ func NewRingLimiterConstructorFunc() func(int, time.Duration) Limiter {
 func NewRingLimiter(size int, window time.Duration) *RingLimiter {
 	r := ring.New(size)
 	return &RingLimiter{
+		size:   size,
 		ring:   r,
 		window: window,
 	}
@@ -55,6 +57,10 @@ func (rl *RingLimiter) TryAccept(now time.Time) bool {
 	}
 
 	return false
+}
+
+func (rl *RingLimiter) LimitDetails() (int, time.Duration) {
+	return rl.size, rl.window
 }
 
 // Try checks if it's within the rate limits.

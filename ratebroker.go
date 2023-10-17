@@ -19,6 +19,11 @@ type Option func(*RateBroker)
 // NewLimiterFunc is a function that creates a new limiter.
 type NewLimiterFunc func(int, time.Duration) limiter.Limiter
 
+type LimitDetails struct {
+	MaxRequests int
+	Window      time.Duration
+}
+
 // RateBroker is the main structure that will use a Limiter to enforce rate limits.
 type RateBroker struct {
 	id             string
@@ -127,7 +132,7 @@ func (rb *RateBroker) Start(ctx context.Context) {
 }
 
 // TryAccept is a method on RateLimiter that checks a new request against the current rate limit.
-func (rb *RateBroker) TryAccept(key string) bool {
+func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDetails) {
 	now := time.Now()
 
 	var userLimit limiter.Limiter
@@ -136,8 +141,11 @@ func (rb *RateBroker) TryAccept(key string) bool {
 		rb.cache.Set(key, userLimit, 1)
 	}
 
+	var limitDetails LimitDetails
+	limitDetails.MaxRequests, limitDetails.Window = userLimit.LimitDetails()
+
 	if allow := userLimit.TryAccept(now); !allow {
-		return false
+		return false, limitDetails
 	}
 
 	if rb.broker != nil {
@@ -148,17 +156,17 @@ func (rb *RateBroker) TryAccept(key string) bool {
 			Key:       key,
 		}
 
-		err := rb.broker.Publish(context.Background(), message)
+		err := rb.publishEvent(ctx, message)
 		if err != nil {
 			slog.Error("error publishing message", slog.Any("error", err.Error()))
 		}
 	}
 
-	return true
+	return true, limitDetails
 }
 
 func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) error {
-	var deferFunc func()
+	deferFunc := func() {}
 	if rb.sem != nil {
 		deferFunc = func() {
 			rb.sem.Release(1)
@@ -171,7 +179,7 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) erro
 
 	go func() {
 		defer deferFunc()
-		err := rb.broker.Publish(context.Background(), msg)
+		err := rb.broker.Publish(ctx, msg)
 		if err != nil {
 			slog.Error("error publishing message", slog.Any("error", err.Error()))
 		}

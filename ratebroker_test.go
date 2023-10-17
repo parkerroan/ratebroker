@@ -1,6 +1,7 @@
 package ratebroker_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestRateLimiter(t *testing.T) {
 
 			denied := 0
 			for i := 0; i < tc.numRequests; i++ {
-				if !rb.TryAccept("user1") {
+				if allowed, _ := rb.TryAccept(context.Background(), "user1"); !allowed {
 					denied++
 				}
 				time.Sleep(tc.sleepBetweenReqs)

@@ -13,6 +13,7 @@ import (
 	"github.com/parkerroan/ratebroker"
 	"github.com/parkerroan/ratebroker/broker"
 
+	"github.com/gorilla/mux"
 	"golang.org/x/exp/slog"
 )
 
@@ -50,23 +51,28 @@ func main() {
 		ratebroker.WithMaxRequests(cfg.MaxRequests),
 	)
 
-	rateBroker.Start(context.Background())
+	ctx := context.Background()
+	rateBroker.Start(ctx)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Use your rate broker to check or enforce rate limits
-		// TODO get user ID from request
-		userKey := r.Header.Get("X-User-ID")
+	// This function generates a key (in this case, the client's IP address)
+	// that the rate limiter uses to identify unique clients.
+	keyGetter := func(r *http.Request) string {
+		// You might want to improve this method to handle IP-forwarding, etc.
+		return r.RemoteAddr
+	}
 
-		if !rateBroker.TryAccept(userKey) {
-			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-			return
-		}
+	// Create a new router
+	r := mux.NewRouter() // or http.NewServeMux()
 
+	// Create a new rate limited HTTP handler using your middleware
+	r.Use(ratebroker.HttpMiddleware(rateBroker, keyGetter))
+
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Handle the request, i.e., serve content, call other functions, etc.
 		w.Write([]byte("Hello, World!"))
 	})
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 func loadEnvFile() {

@@ -49,6 +49,7 @@ func (pq *priorityQueue) Pop() interface{} {
 type HeapLimiter struct {
 	pq     priorityQueue
 	window time.Duration
+	size   int
 	mutex  sync.Mutex
 }
 
@@ -64,6 +65,7 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 	heap.Init(&pq)
 	return &HeapLimiter{
 		pq:     pq,
+		size:   size,
 		window: window,
 	}
 }
@@ -92,6 +94,10 @@ func (hl *HeapLimiter) TryAccept(now time.Time) bool {
 	}
 
 	return false
+}
+
+func (hl *HeapLimiter) LimitDetails() (int, time.Duration) {
+	return hl.size, hl.window
 }
 
 func (hl *HeapLimiter) accept(now time.Time) {
