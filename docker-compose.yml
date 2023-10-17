@@ -1,0 +1,22 @@
+version: '3.8'
+services:
+  web:
+    image: local-images/exampleweb:1.0.0
+    environment:
+      - REDIS_URL=redis://redis:6379
+    deploy:
+      replicas: 3 # specify the number of replicas you want
+      update_config:
+        parallelism: 2
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+  redis:
+    image: redis
+    ports:
+      - 6379:6379
+    

@@ -20,5 +20,5 @@ type Message struct {
 // Limiter is the interface that abstracts the limitations functionality.
 type Broker interface {
 	Publish(ctx context.Context, msg Message) error
-	Consume(ctx context.Context, handler func(Message)) error
+	Consume(ctx context.Context, handlerFunc func(Message)) error
 }

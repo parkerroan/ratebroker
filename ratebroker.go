@@ -3,7 +3,6 @@ package ratebroker
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/dgraph-io/ristretto"
@@ -12,27 +11,27 @@ import (
 	"golang.org/x/exp/slog"
 )
 
+// Option is a function that can be passed into NewRateBroker to configure the RateBroker.
+// Can also be chained together.
 type Option func(*RateBroker)
 
-// RateLimiter is the main structure that will use a Limiter to enforce rate limits.
+// RateBroker is the main structure that will use a Limiter to enforce rate limits.
 type RateBroker struct {
-	broker      broker.Broker
-	limiterFunc limiter.NewLimiterFunc
-	maxRequests int
-	window      time.Duration
-	userCache   *ristretto.Cache
-	mu          sync.Mutex
-	//TODO add a cache for limiter per user
+	broker         broker.Broker
+	newLimiterFunc limiter.NewLimiterFunc
+	maxRequests    int
+	window         time.Duration
+	cache          *ristretto.Cache
 }
 
 // NewRateBroker creates a RateLimiter with the provided Limiter.
-func NewRateBroker(broker broker.Broker, limiterFunc limiter.NewLimiterFunc, opts ...Option) *RateBroker {
+func NewRateBroker(broker broker.Broker, newLimiterFunc limiter.NewLimiterFunc, opts ...Option) *RateBroker {
 
 	rb := &RateBroker{
-		limiterFunc: limiterFunc,
-		broker:      broker,
-		maxRequests: 30,
-		window:      10 * time.Second,
+		newLimiterFunc: newLimiterFunc,
+		broker:         broker,
+		maxRequests:    30,
+		window:         10 * time.Second,
 	}
 
 	// Apply all provided options
@@ -41,7 +40,7 @@ func NewRateBroker(broker broker.Broker, limiterFunc limiter.NewLimiterFunc, opt
 	}
 
 	// Create a new cache with a high size limit (adjust as needed) if one is not provided
-	if rb.userCache == nil {
+	if rb.cache == nil {
 		cache, err := ristretto.NewCache(&ristretto.Config{
 			NumCounters: 1e7,     // Num keys to track frequency of (10M).
 			MaxCost:     1 << 30, // Maximum cost of cache (1GB).
@@ -50,7 +49,7 @@ func NewRateBroker(broker broker.Broker, limiterFunc limiter.NewLimiterFunc, opt
 		if err != nil {
 			log.Fatal(err) // handle error according to your strategy
 		}
-		rb.userCache = cache
+		rb.cache = cache
 	}
 
 	return rb
@@ -70,57 +69,59 @@ func WithWindow(window time.Duration) Option {
 	}
 }
 
-// Start ...
+// Start is a method on RateLimiter that starts the broker consuming messages
+// and handling them in the background.
 func (rb *RateBroker) Start(ctx context.Context) {
-
 	go func() {
-		rb.broker.Consume(ctx, rb.BrokerHandleFunc)
+		err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
+		if err != nil {
+			slog.Error("error consuming messages", slog.Any("error", err.Error()))
+		}
 	}()
 }
 
 // TryAccept is a method on RateLimiter that checks a new request against the current rate limit.
 func (rb *RateBroker) TryAccept(key string) bool {
 	now := time.Now()
-	var block bool
 
-	if userLimit := rb.getLimiterForUser(key); userLimit != nil {
-		block = !userLimit.Try(now)
+	if userLimit := rb.getLimiter(key); userLimit != nil {
+		if allow := userLimit.Try(now); !allow {
+			return false
+		}
 	}
 
-	if block {
-		message := broker.Message{
-			Event:     broker.RequestAccepted,
-			Timestamp: time.Now(),
-			Key:       key,
-		}
-		err := rb.broker.Publish(context.Background(), message)
-		if err != nil {
-			slog.Error("error publishing message", slog.Any("error", err.Error()))
-		}
-		// handle err if necessary...
+	message := broker.Message{
+		Event:     broker.RequestAccepted,
+		Timestamp: time.Now(),
+		Key:       key,
 	}
 
-	return !block
+	err := rb.broker.Publish(context.Background(), message)
+	if err != nil {
+		slog.Error("error publishing message", slog.Any("error", err.Error()))
+	}
+
+	return true
 }
 
-func (rb *RateBroker) BrokerHandleFunc(message broker.Message) {
+// BrokerHandleFunc is passed into the broker to handle incoming messages
+func (rb *RateBroker) brokerHandleFunc(message broker.Message) {
 	slog.Info("message received", slog.Any("message", message))
 
-	//TODO lookup limiter for user
-	userLimit := rb.getLimiterForUser(message.Key)
-	if userLimit == nil {
-		userLimit = rb.limiterFunc(rb.maxRequests, rb.window)
-		rb.userCache.Set(message.Key, userLimit, 1)
+	limit := rb.getLimiter(message.Key)
+	if limit == nil {
+		limit = rb.newLimiterFunc(rb.maxRequests, rb.window)
+		rb.cache.Set(message.Key, limit, 1)
 	}
 
-	userLimit.Accept(message.Timestamp)
+	limit.Accept(message.Timestamp)
 }
 
-func (rb *RateBroker) getLimiterForUser(userID string) limiter.Limiter {
+func (rb *RateBroker) getLimiter(key string) limiter.Limiter {
 	var userLimiter limiter.Limiter
 
 	// Try to get the limiter from cache
-	item, found := rb.userCache.Get(userID)
+	item, found := rb.cache.Get(key)
 	if !found {
 		return nil
 	}

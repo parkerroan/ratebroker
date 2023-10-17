@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/go-redis/redis/v8" // Ensure you have the latest version of go-redis library
+	"github.com/go-redis/redis/v8"
 )
 
 type RedisBroker struct {
@@ -15,10 +15,18 @@ type RedisBroker struct {
 func NewRedisBroker(redisURL string) *RedisBroker {
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisURL, // "localhost:6379"
-		// ... other options as needed
 	})
 
-	return &RedisBroker{client: rdb}
+	return &RedisBroker{
+		client: rdb,
+		stream: "ratebroker",
+	}
+}
+
+func WithStream(stream string) func(*RedisBroker) {
+	return func(rb *RedisBroker) {
+		rb.stream = stream
+	}
 }
 
 func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
@@ -32,7 +40,7 @@ func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
 }
 
 // Consume listens to messages on a Redis stream and processes them with handlerFunc
-func (r *RedisBroker) Consume(ctx context.Context, channel string, handlerFunc func(Message) error) error {
+func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) error {
 	// The 'lastMessageID' is initially set to '$' for new messages.
 	var lastMessageID = "$"
 
@@ -45,7 +53,7 @@ func (r *RedisBroker) Consume(ctx context.Context, channel string, handlerFunc f
 		// Read messages from the stream.
 		// 'Count' can be adjusted based on how many messages we want to process per iteration.
 		messages, err := r.client.XRead(ctx, &redis.XReadArgs{
-			Streams: []string{channel, lastMessageID},
+			Streams: []string{r.stream, lastMessageID},
 			Count:   10, // Define how many messages you want to retrieve at once
 			Block:   0,  // Setting the block time to 0 makes the XRead command non-blocking
 		}).Result()
@@ -65,9 +73,7 @@ func (r *RedisBroker) Consume(ctx context.Context, channel string, handlerFunc f
 				}
 
 				// Call the handler function to process the message
-				if err := handlerFunc(msg); err != nil {
-					return err // Handle the error from the handler function
-				}
+				handlerFunc(msg)
 
 				// Update lastMessageID to acknowledge processing.
 				lastMessageID = xMessage.ID
