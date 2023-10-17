@@ -45,7 +45,10 @@ func main() {
 	redisBroker := broker.NewRedisBroker(rdb)
 
 	// Create a rate broker w/ ring limiter
-	rateBroker := ratebroker.NewRateBroker(redisBroker, ratebroker.WithMaxRequests(cfg.MaxRequests))
+	rateBroker := ratebroker.NewRateBroker(
+		ratebroker.WithBroker(redisBroker),
+		ratebroker.WithMaxRequests(cfg.MaxRequests),
+	)
 
 	rateBroker.Start(context.Background())
 

@@ -33,13 +33,13 @@ type RateBroker struct {
 }
 
 // NewRateBroker creates a RateLimiter with the provided Limiter.
-func NewRateBroker(broker broker.Broker, opts ...Option) *RateBroker {
+func NewRateBroker(opts ...Option) *RateBroker {
 
 	//Defaults
 	rb := &RateBroker{
 		id:             uuid.NewString(),
 		newLimiterFunc: limiter.NewRingLimiterConstructorFunc(),
-		broker:         broker,
+		broker:         nil,
 		maxRequests:    30,
 		window:         10 * time.Second,
 	}
@@ -63,6 +63,13 @@ func NewRateBroker(broker broker.Broker, opts ...Option) *RateBroker {
 	}
 
 	return rb
+}
+
+// WithID sets the ID for the RateBroker.
+func WithBroker(broker broker.Broker) Option {
+	return func(rb *RateBroker) {
+		rb.broker = broker
+	}
 }
 
 // WithID sets the ID for the RateBroker.
@@ -105,34 +112,42 @@ func WithLimiterContructorFunc(limiterFunc NewLimiterFunc) Option {
 // Start is a method on RateLimiter that starts the broker consuming messages
 // and handling them in the background.
 func (rb *RateBroker) Start(ctx context.Context) {
-	go func() {
-		err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
-		if err != nil {
-			slog.Error("error consuming messages", slog.Any("error", err.Error()))
-		}
-	}()
+	if rb.broker == nil {
+		go func() {
+			err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
+			if err != nil {
+				slog.Error("error consuming messages", slog.Any("error", err.Error()))
+			}
+		}()
+	}
 }
 
 // TryAccept is a method on RateLimiter that checks a new request against the current rate limit.
 func (rb *RateBroker) TryAccept(key string) bool {
 	now := time.Now()
 
-	if userLimit := rb.getLimiter(key); userLimit != nil {
-		if allow := userLimit.Try(now); !allow {
-			return false
+	var userLimit limiter.Limiter
+	if userLimit = rb.getLimiter(key); userLimit == nil {
+		userLimit = rb.newLimiterFunc(rb.maxRequests, rb.window)
+		rb.cache.Set(key, userLimit, 1)
+	}
+
+	if allow := userLimit.TryAccept(now); !allow {
+		return false
+	}
+
+	if rb.broker != nil {
+		message := broker.Message{
+			BrokerID:  rb.id,
+			Event:     broker.RequestAccepted,
+			Timestamp: now,
+			Key:       key,
 		}
-	}
 
-	message := broker.Message{
-		BrokerID:  rb.id,
-		Event:     broker.RequestAccepted,
-		Timestamp: now,
-		Key:       key,
-	}
-
-	err := rb.broker.Publish(context.Background(), message)
-	if err != nil {
-		slog.Error("error publishing message", slog.Any("error", err.Error()))
+		err := rb.broker.Publish(context.Background(), message)
+		if err != nil {
+			slog.Error("error publishing message", slog.Any("error", err.Error()))
+		}
 	}
 
 	return true
@@ -165,6 +180,11 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) erro
 func (rb *RateBroker) brokerHandleFunc(message broker.Message) {
 	slog.Info("message received", slog.Any("message", message))
 
+	//return early as we don't want to process our own messages
+	if message.BrokerID == rb.id {
+		return
+	}
+
 	limit := rb.getLimiter(message.Key)
 	if limit == nil {
 		limit = rb.newLimiterFunc(rb.maxRequests, rb.window)
@@ -172,6 +192,7 @@ func (rb *RateBroker) brokerHandleFunc(message broker.Message) {
 	}
 
 	limit.Accept(message.Timestamp)
+
 }
 
 func (rb *RateBroker) getLimiter(key string) limiter.Limiter {

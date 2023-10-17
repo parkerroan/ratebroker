@@ -14,7 +14,7 @@ func TestRateLimiter(t *testing.T) {
 		description      string
 		limiterFunc      ratebroker.NewLimiterFunc
 		window           time.Duration
-		rate             int
+		maxRequests      int
 		numRequests      int
 		expectedDenials  int
 		sleepBetweenReqs time.Duration // Sleep duration between requests.
@@ -25,6 +25,8 @@ func TestRateLimiter(t *testing.T) {
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
+			maxRequests:      5,
+			window:           2 * time.Second,
 		},
 		{
 			description:      "Heap limiter should deny expected number of requests",
@@ -32,13 +34,19 @@ func TestRateLimiter(t *testing.T) {
 			numRequests:      20,
 			expectedDenials:  15, // Adjust based on your expected scenario
 			sleepBetweenReqs: 20 * time.Millisecond,
+			maxRequests:      5,
+			window:           2 * time.Second,
 		},
 	}
 
 	// Iterate through each test case.
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			rb := ratebroker.NewRateBroker(nil, ratebroker.WithLimiterContructorFunc(tc.limiterFunc))
+			rb := ratebroker.NewRateBroker(
+				ratebroker.WithLimiterContructorFunc(tc.limiterFunc),
+				ratebroker.WithWindow(tc.window),
+				ratebroker.WithMaxRequests(tc.maxRequests),
+			)
 
 			denied := 0
 			for i := 0; i < tc.numRequests; i++ {
