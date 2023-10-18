@@ -7,20 +7,6 @@ import (
 
 // HttpMiddleware creates a new middleware function for rate limiting.
 // This function is compatible with both standard net/http and mux handlers.
-//
-// Example:
-//
-//	// Create a new rate broker w/ ring limiter
-//	r := mux.NewRouter() // or http.NewServeMux()
-//	// This function generates a key (in this case, the client's IP address)
-//	// that the rate limiter uses to identify unique clients.
-//	keyGetter := func(r *http.Request) string {
-//		// You might want to improve this method to handle IP-forwarding, etc.
-//		return r.RemoteAddr
-//	}
-//
-//	// Create a new rate limited HTTP handler using your middleware
-//	r.Use(ratebroker.HttpMiddleware(rateBroker, keyGetter))
 func HttpMiddleware(rb *RateBroker, keyGetter func(r *http.Request) string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

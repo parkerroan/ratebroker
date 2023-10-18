@@ -46,6 +46,9 @@ func (pq *priorityQueue) Pop() interface{} {
 }
 
 // HeapLimiter is an implementation of the Limiter interface using a min-heap.
+// This would be used if more accuracy is needed because the heap is sorted by the timestamp value
+// not the order of the requests like with the ring buffer.
+// This is also more expensive than the ring buffer.
 type HeapLimiter struct {
 	pq     priorityQueue
 	window time.Duration
@@ -53,13 +56,14 @@ type HeapLimiter struct {
 	mutex  sync.Mutex
 }
 
+// NewHeapLimiterConstructorFunc returns a function that creates a new HeapLimiter.
 func NewHeapLimiterConstructorFunc() func(int, time.Duration) Limiter {
 	return func(size int, window time.Duration) Limiter {
 		return NewHeapLimiter(size, window)
 	}
 }
 
-// NewHeapLimiter creates a HeapLimiter.
+// NewHeapLimiter
 func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 	pq := make(priorityQueue, 0, size)
 	heap.Init(&pq)
@@ -71,12 +75,15 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 }
 
 // TryAccept implements the Limiter interface for the HeapLimiter.
+// This is used to check if the request is within the rate limits.
 func (hl *HeapLimiter) Try(now time.Time) bool {
 	hl.mutex.Lock()
 	defer hl.mutex.Unlock()
 	return hl.try(now)
 }
 
+// Accept implements the Limiter interface for the HeapLimiter.
+// This is used when the request is accepted and added to the heap.
 func (hl *HeapLimiter) Accept(now time.Time) {
 	hl.mutex.Lock()
 	defer hl.mutex.Unlock()
@@ -84,6 +91,7 @@ func (hl *HeapLimiter) Accept(now time.Time) {
 }
 
 // TryAccept implements the Limiter interface for the HeapLimiter.
+// This is used to check if the request is within the rate limits and if it is, it's added to the heap.
 func (hl *HeapLimiter) TryAccept(now time.Time) bool {
 	hl.mutex.Lock()
 	defer hl.mutex.Unlock()
@@ -96,6 +104,7 @@ func (hl *HeapLimiter) TryAccept(now time.Time) bool {
 	return false
 }
 
+// LimitDetails returns the size and window of the limiter.
 func (hl *HeapLimiter) LimitDetails() (int, time.Duration) {
 	return hl.size, hl.window
 }

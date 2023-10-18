@@ -18,7 +18,9 @@ type Message struct {
 	Key       string    `json:"key"`       // The key of the request, e.g., IP, UserID, etc.
 }
 
-// Limiter is the interface that abstracts the limitations functionality.
+// Broker is an interface that defines the methods that a broker must implement.
+// The broker is responsible for publishing and consuming messages and could be implemented in
+// any message broker, e.g., Redis, Kafka, etc.
 type Broker interface {
 	Publish(ctx context.Context, msg Message) error
 	Consume(ctx context.Context, handlerFunc func(Message)) error

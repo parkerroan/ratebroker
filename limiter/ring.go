@@ -7,6 +7,8 @@ import (
 )
 
 // RingLimiter is an implementation of the Limiter interface using a ring buffer.
+// This is more performant than the HeapLimiter as it doesn't need to sort the requests by value and
+// it uses a fixed size array.
 type RingLimiter struct {
 	ring   *ring.Ring
 	size   int
@@ -14,6 +16,8 @@ type RingLimiter struct {
 	mutex  sync.Mutex
 }
 
+// NewRingLimiterConstructorFunc returns a function that creates a new RingLimiter.
+// This is used by default in the Broker.
 func NewRingLimiterConstructorFunc() func(int, time.Duration) Limiter {
 	return func(size int, window time.Duration) Limiter {
 		return NewRingLimiter(size, window)
@@ -59,6 +63,7 @@ func (rl *RingLimiter) TryAccept(now time.Time) bool {
 	return false
 }
 
+// LimitDetails returns the size and window of the limiter.
 func (rl *RingLimiter) LimitDetails() (int, time.Duration) {
 	return rl.size, rl.window
 }

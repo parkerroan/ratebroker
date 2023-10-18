@@ -7,28 +7,41 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+// Option is a function that can be passed into NewRateBroker to configure the RateBroker.
+type Option func(*RedisBroker)
+
+// RedisBroker is an implementation of the Broker interface
+// that uses Redis as the message broker.
 type RedisBroker struct {
 	stream string
 	client *redis.Client
 }
 
-func NewRedisBroker(rdb *redis.Client) *RedisBroker {
-	return &RedisBroker{
+func NewRedisBroker(rdb *redis.Client, opts ...Option) *RedisBroker {
+	rb := &RedisBroker{
 		client: rdb,
 		stream: "ratebroker",
 	}
+
+	// Apply all provided options
+	for _, opt := range opts {
+		opt(rb)
+	}
+
+	return rb
 }
 
+// WithStream sets the Redis stream name, a good value
+// would be the name of your application.
+// default: "ratebroker"
 func WithStream(stream string) func(*RedisBroker) {
 	return func(rb *RedisBroker) {
 		rb.stream = stream
 	}
 }
 
+// Publish publishes a message to a Redis stream
 func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
-	// Here you would publish the message to the Redis stream.
-	// The actual implementation depends on your use case.
-	// This is a very basic example.
 	values := map[string]interface{}{
 		"broker_id": message.BrokerID,
 		"event":     message.Event,
@@ -83,9 +96,5 @@ func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) er
 				lastMessageID = xMessage.ID
 			}
 		}
-
-		// Here, you may choose to implement a back-off strategy before the next iteration.
 	}
-
-	// Note: The function is designed to run indefinitely. Manage exit criteria based on your application's architecture.
 }

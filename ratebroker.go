@@ -19,6 +19,7 @@ type Option func(*RateBroker)
 // NewLimiterFunc is a function that creates a new limiter.
 type NewLimiterFunc func(int, time.Duration) limiter.Limiter
 
+// LimitDetails is a struct that contains the max requests and window for a single limiter.
 type LimitDetails struct {
 	MaxRequests int
 	Window      time.Duration
@@ -81,14 +82,17 @@ func WithBroker(broker broker.Broker) Option {
 	}
 }
 
-// WithID sets the ID for the RateBroker.
+// WithID sets the ID for the RateBroker
+// ID is used to identify messages published by the
+// RateBroker and should be unique per pod/replica
 func WithID(id string) Option {
 	return func(rb *RateBroker) {
 		rb.id = id
 	}
 }
 
-// WithMaxRequests sets the maximum number of requests allowed for the RateBroker.
+// WithMaxRequests sets the maximum number of requests allowed
+// within the supplied window for the RateBroker.
 func WithMaxRequests(max int) Option {
 	return func(rb *RateBroker) {
 		rb.maxRequests = max
@@ -112,6 +116,10 @@ func WithWindow(window time.Duration) Option {
 }
 
 // WithLimiterContructorFunc sets the function used to create a new limiter.
+// The default is limiter.NewRingLimiterConstructorFunc()
+// If you want to use a different limiter, you can pass in a function that creates it.
+// For example, limiter.NewHeapLimiterConstructorFunc() is a supplied limiter
+// that uses a heap instead of a ring buffer.
 func WithLimiterContructorFunc(limiterFunc NewLimiterFunc) Option {
 	return func(rb *RateBroker) {
 		rb.newLimiterFunc = limiterFunc
