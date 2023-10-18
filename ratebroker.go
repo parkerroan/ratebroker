@@ -8,7 +8,6 @@ import (
 	"github.com/beevik/ntp"
 	"github.com/dgraph-io/ristretto"
 	"github.com/google/uuid"
-	"github.com/parkerroan/ratebroker/broker"
 	"github.com/parkerroan/ratebroker/limiter"
 	"golang.org/x/exp/slog"
 	"golang.org/x/sync/semaphore"
@@ -29,7 +28,7 @@ type LimitDetails struct {
 // RateBroker is the main structure that will use a Limiter to enforce rate limits.
 type RateBroker struct {
 	id             string
-	broker         broker.Broker
+	broker         MessageBroker
 	newLimiterFunc NewLimiterFunc
 	maxRequests    int
 	window         time.Duration
@@ -79,7 +78,7 @@ func NewRateBroker(opts ...Option) *RateBroker {
 // to the message broker.
 //
 // Instead it will use the local limiter to enforce rate limits without distribution.
-func WithBroker(broker broker.Broker) Option {
+func WithBroker(broker MessageBroker) Option {
 	return func(rb *RateBroker) {
 		rb.broker = broker
 	}
@@ -191,9 +190,9 @@ func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDet
 	}
 
 	if rb.broker != nil {
-		message := broker.Message{
+		message := Message{
 			BrokerID:  rb.id,
-			Event:     broker.RequestAccepted,
+			Event:     RequestAccepted,
 			Timestamp: now,
 			Key:       key,
 		}
@@ -207,7 +206,7 @@ func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDet
 	return true, limitDetails
 }
 
-func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) error {
+func (rb *RateBroker) publishEvent(ctx context.Context, msg Message) error {
 	deferFunc := func() {}
 	if rb.sem != nil {
 		deferFunc = func() {
@@ -219,7 +218,7 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) erro
 		}
 	}
 
-	go func(msg broker.Message) {
+	go func(msg Message) {
 		slog.Info("publishing message", slog.Any("message", msg))
 		publishCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Set your own timeout duration
 		defer cancel()
@@ -234,7 +233,7 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) erro
 }
 
 // BrokerHandleFunc is passed into the broker to handle incoming messages
-func (rb *RateBroker) brokerHandleFunc(message broker.Message) {
+func (rb *RateBroker) brokerHandleFunc(message Message) {
 	slog.Info("message received", slog.Any("message", message))
 
 	//return early as we don't want to process our own messages

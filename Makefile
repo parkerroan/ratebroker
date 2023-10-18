@@ -13,9 +13,12 @@ restart.web:
 	echo "Restarting the 'web' service..."
 	docker service update --force exampleweb_web
 
-deploy:
- 	docker stack deploy -c docker-compose.yml exampleweb
+deploy: 
+	docker stack deploy -c docker-compose.yml exampleweb
 
 loadtest:
 	echo "Running load test..."
-	locust -f locust.py --headless -u 1 -r 1 --run-time 5m --csv=output
+	(cd locust && locust -f locust.py --headless -u 1 -r 1 --run-time 5m --csv=output)
+	
+
+

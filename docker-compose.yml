@@ -4,8 +4,8 @@ services:
     image: local-images/exampleweb:1.0.0
     environment:
       - REDIS_URL=redis:6379
-      - MAX_REQUESTS=45
-      - WINDOW_DURATION=10s
+      - MAX_REQUESTS=50
+      - WINDOW_DURATION=5s
     deploy:
       replicas: 3 # specify the number of replicas you want
       update_config:

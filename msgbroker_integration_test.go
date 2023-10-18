@@ -1,4 +1,4 @@
-package broker_test
+package ratebroker_test
 
 import (
 	"context"
@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/parkerroan/ratebroker/broker"
+	"github.com/parkerroan/ratebroker"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRedisBroker(t *testing.T) {
+func TestRedisMessageBroker(t *testing.T) {
 	// Set up a Redis client.
 	// Note: For a real integration test, you might want to use a separate Redis instance (e.g., via Docker)
 	rdb := redis.NewClient(&redis.Options{
@@ -21,17 +21,17 @@ func TestRedisBroker(t *testing.T) {
 	_, err := rdb.Ping(context.Background()).Result()
 	assert.NoError(t, err)
 
-	// Create a new Redis broker
-	redisBroker := broker.NewRedisBroker(rdb)
+	// Create a new Redis ratebroker
+	RedisMessageBroker := ratebroker.NewRedisMessageBroker(rdb)
 
 	// Context with timeout to avoid hanging tests indefinitely
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Define a test message
-	originalMsg := broker.Message{
-		BrokerID: "test-broker",
-		Event:    broker.RequestAccepted,
+	originalMsg := ratebroker.Message{
+		BrokerID: "test-ratebroker",
+		Event:    ratebroker.RequestAccepted,
 	}
 
 	// Flag to check if the message was received
@@ -39,7 +39,7 @@ func TestRedisBroker(t *testing.T) {
 
 	// Test consuming the message
 	go func() {
-		err := redisBroker.Consume(ctx, func(msg broker.Message) {
+		err := RedisMessageBroker.Consume(ctx, func(msg ratebroker.Message) {
 			assert.Equal(t, originalMsg, msg, "Received message does not match the original")
 			close(messageReceived) // signal that the message was received
 		})
@@ -49,7 +49,7 @@ func TestRedisBroker(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	// Test publishing the message
-	err = redisBroker.Publish(ctx, originalMsg)
+	err = RedisMessageBroker.Publish(ctx, originalMsg)
 	assert.NoError(t, err, "Failed to publish message")
 
 	// Wait for the message to be received or timeout

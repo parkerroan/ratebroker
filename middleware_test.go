@@ -9,7 +9,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/parkerroan/ratebroker"
-	"github.com/parkerroan/ratebroker/broker"
 	"github.com/parkerroan/ratebroker/limiter"
 )
 
@@ -21,7 +20,7 @@ func ExampleHttpMiddleware() {
 	})
 
 	// Create instances of your broker and limiter
-	redisBroker := broker.NewRedisBroker(rdb)
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb)
 
 	// Create a rate broker w/ ring limiter
 	rateBroker := ratebroker.NewRateBroker(
@@ -55,7 +54,7 @@ func ExampleRateBroker_redisBroker() {
 	})
 
 	// Create instances of your broker and limiter
-	redisBroker := broker.NewRedisBroker(rdb)
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb)
 
 	// Create a rate broker w/ ring limiter
 	rateBroker := ratebroker.NewRateBroker(
