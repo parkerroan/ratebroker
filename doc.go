@@ -1,29 +1,45 @@
 /*
-Package ratebroker provides a rate limiting broker that can be used across many clients/servers
-to limit the number of requests per user over a given time window.
+Package ratebroker manages rate limiting across various clients/servers, enabling control
+over request frequency per user within a specific time frame and maximum request count.
 
-The ratebroker has the option to use a message broker to distribute the rate limiting to all
-clients/servers subscribed to the same topic/channel/stream.
+One feature of ratebroker is its compatibility with message brokers to distribute rate
+limits across multiple subscribers on the same topic/channel/stream. It uses an interface,
+allowing adaptability with any message broker that follows the prescribed method signature.
+This package includes support for Redis Streams, detailed at
+https://redis.io/topics/streams-intro.
 
-# If no message broker is provided, the ratebroker will use a local limiter
-Example:
+Without an external message broker, ratebroker employs a local limiter. Usage example:
 
 	import (
 		"time"
 		"github.com/parkerroan/ratebroker"
 	)
 
-	// Create a new ratebroker with a local limiter
-	rb := ratebroker.New(
-		ratebroker.WithMaxRequests(10),
-		ratebroker.WithWindow(10*time.Second),
-	)
+	func main() {
+		// Set up ratebroker with a local limiter.
+		rb := ratebroker.New(
+			ratebroker.WithMaxRequests(10),
+			ratebroker.WithWindow(10*time.Second),
+		)
 
-The ratebroker uses a limiter to enforce rate limits. The default limiter is a ring buffer
+		allowed, detail := rb.TryAccept("userKey")
+		// ... other code ...
+	}
 
-The repo provides 2 limiters and each can be used without the ratebroker
-if you don't need to distribute the limit or implement per user limiting:
-- Ring  (https://github.com/parkerroan/ratebroker/limiter/ring)
-- Heap (https://github.com/parkerroan/ratebroker/limiter/heap)
+The package utilizes 'limiters' to enforce rate limits. By default, a ring buffer limiter is
+used.
+
+Two standalone limiters are also available, separate from the main ratebroker functionality,
+for scenarios not requiring distributed or user-specific rate limits:
+
+1. Ring: The default, a ring buffer limiter suitable where slight leniency is acceptable.
+Details at https://github.com/parkerroan/ratebroker/limiter/ring.
+
+2. Heap: A min-heap limiter for contexts needing higher precision, sorting requests by
+timestamps. Though more accurate, it requires more resources. See
+https://github.com/parkerroan/ratebroker/limiter/heap.
+
+The choice between Ring and Heap depends on the precision and resource constraints of your
+application.
 */
 package ratebroker

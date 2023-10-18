@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/beevik/ntp"
 	"github.com/dgraph-io/ristretto"
 	"github.com/google/uuid"
 	"github.com/parkerroan/ratebroker/broker"
@@ -35,6 +36,8 @@ type RateBroker struct {
 	cache          *ristretto.Cache
 	maxThreads     int
 	sem            *semaphore.Weighted
+	ntpClient      *ntp.Response // add an NTP client field
+	ntpServer      string
 }
 
 // NewRateBroker creates a RateLimiter with the provided Limiter.
@@ -115,6 +118,14 @@ func WithWindow(window time.Duration) Option {
 	}
 }
 
+// WithNTPServer is an option to set the NTP server for the RateBroker. If this option is not used,
+// the RateBroker will use the system's local time.
+func WithNTPServer(server string) Option {
+	return func(rb *RateBroker) {
+		rb.ntpServer = server
+	}
+}
+
 // WithLimiterContructorFunc sets the function used to create a new limiter.
 // The default is limiter.NewRingLimiterConstructorFunc()
 // If you want to use a different limiter, you can pass in a function that creates it.
@@ -139,9 +150,28 @@ func (rb *RateBroker) Start(ctx context.Context) {
 	}
 }
 
+// Now tries to get the time from the NTP server if available; otherwise, it uses the local time.
+func (rb *RateBroker) Now() time.Time {
+	if rb.ntpServer != "" {
+		// Check if we need to (re)fetch the NTP time
+		if rb.ntpClient == nil || time.Since(rb.ntpClient.Time) > 1*time.Minute { //re-fetch every minute
+			response, err := ntp.Query(rb.ntpServer)
+			if err != nil {
+				slog.Error("error querying NTP server", slog.Any("error", err.Error()))
+				return time.Now()
+			}
+			rb.ntpClient = response
+		}
+		return time.Now().Add(rb.ntpClient.ClockOffset)
+	}
+
+	// No NTP server configured, return system local time
+	return time.Now()
+}
+
 // TryAccept is a method on RateLimiter that checks a new request against the current rate limit.
 func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDetails) {
-	now := time.Now()
+	now := rb.Now()
 
 	var userLimit limiter.Limiter
 	if userLimit = rb.getLimiter(key); userLimit == nil {
