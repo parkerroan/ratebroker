@@ -141,13 +141,17 @@ func WithLimiterContructorFunc(limiterFunc NewLimiterFunc) Option {
 // and handling them in the background.
 func (rb *RateBroker) Start(ctx context.Context) {
 	if rb.broker == nil {
-		go func() {
-			err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
-			if err != nil {
-				slog.Error("error consuming messages", slog.Any("error", err.Error()))
-			}
-		}()
+		slog.Info("no broker configured, ignoring start")
+		return
 	}
+
+	go func() {
+		err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
+		if err != nil {
+			slog.Error("error consuming messages", slog.Any("error", err.Error()))
+		}
+	}()
+
 }
 
 // Now tries to get the time from the NTP server if available; otherwise, it uses the local time.
@@ -215,13 +219,16 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg broker.Message) erro
 		}
 	}
 
-	go func() {
+	go func(msg broker.Message) {
+		slog.Info("publishing message", slog.Any("message", msg))
+		publishCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Set your own timeout duration
+		defer cancel()
 		defer deferFunc()
-		err := rb.broker.Publish(ctx, msg)
+		err := rb.broker.Publish(publishCtx, msg)
 		if err != nil {
-			slog.Error("error publishing message", slog.Any("error", err.Error()))
+			slog.Error("error broker publish", slog.Any("error", err.Error()))
 		}
-	}()
+	}(msg)
 
 	return nil
 }

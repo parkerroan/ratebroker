@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
@@ -18,11 +19,10 @@ import (
 )
 
 type Config struct {
-	Port        int    `envconfig:"SERVER_PORT" default:"8080"`
-	MaxRequests int    `envconfig:"MAX_REQUESTS" default:"5"`
-	Window      string `envconfig:"WINDOW_DURATION" default:"1m"` // This can be time.Duration if you want the library to handle parsing
-	RedisURL    string `envconfig:"REDIS_URL" default:"redis://localhost:6379"`
-	// ... other configuration variables
+	Port        int           `envconfig:"SERVER_PORT" default:"8080"`
+	MaxRequests int           `envconfig:"MAX_REQUESTS" default:"5"`
+	Window      time.Duration `envconfig:"WINDOW_DURATION" default:"60s"` // This can be time.Duration if you want the library to handle parsing
+	RedisURL    string        `envconfig:"REDIS_URL" default:"localhost:6379"`
 }
 
 func main() {
@@ -49,6 +49,7 @@ func main() {
 	rateBroker := ratebroker.NewRateBroker(
 		ratebroker.WithBroker(redisBroker),
 		ratebroker.WithMaxRequests(cfg.MaxRequests),
+		ratebroker.WithWindow(cfg.Window),
 	)
 
 	ctx := context.Background()
@@ -58,11 +59,14 @@ func main() {
 	// that the rate limiter uses to identify unique clients.
 	keyGetter := func(r *http.Request) string {
 		// You might want to improve this method to handle IP-forwarding, etc.
-		return r.RemoteAddr
+		return "test-user"
 	}
 
 	// Create a new router
 	r := mux.NewRouter() // or http.NewServeMux()
+
+	// Add the logging middleware first.
+	r.Use(LoggingMiddleware)
 
 	// Create a new rate limited HTTP handler using your middleware
 	r.Use(ratebroker.HttpMiddleware(rateBroker, keyGetter))
@@ -73,6 +77,40 @@ func main() {
 	})
 
 	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// WriteHeader captures the status code and writes it to the response.
+func (rec *statusRecorder) WriteHeader(code int) {
+	rec.statusCode = code
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create a new status recorder.
+		recorder := &statusRecorder{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK, // Default to 200 OK if WriteHeader is not called.
+		}
+
+		// Continue to the next middleware or handler.
+		next.ServeHTTP(recorder, r)
+
+		// Now that the handler has finished, the status code is set.
+		log.Printf(
+			"Method: %s | Path: %s | StatusCode: %d | RemoteAddr: %s | UserAgent: %s",
+			r.Method,
+			r.RequestURI,
+			recorder.statusCode,
+			r.RemoteAddr,
+			r.UserAgent(),
+		)
+	})
 }
 
 func loadEnvFile() {
