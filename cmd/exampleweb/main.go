@@ -12,7 +12,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/parkerroan/ratebroker"
-	"github.com/parkerroan/ratebroker/broker"
 
 	"github.com/gorilla/mux"
 	"golang.org/x/exp/slog"
@@ -43,7 +42,7 @@ func main() {
 	})
 
 	// Create instances of your broker and limiter
-	redisBroker := broker.NewRedisBroker(rdb)
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb)
 
 	// Create a rate broker w/ ring limiter
 	rateBroker := ratebroker.NewRateBroker(
