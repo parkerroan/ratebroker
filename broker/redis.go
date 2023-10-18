@@ -3,6 +3,8 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 )
@@ -15,6 +17,9 @@ type Option func(*RedisBroker)
 type RedisBroker struct {
 	stream string
 	client *redis.Client
+
+	//name time duration for pull older messages on startup
+	initialLoadOffset time.Duration
 }
 
 func NewRedisBroker(rdb *redis.Client, opts ...Option) *RedisBroker {
@@ -40,6 +45,16 @@ func WithStream(stream string) func(*RedisBroker) {
 	}
 }
 
+// WithInitLoadOffset is a time duration that will allow
+// the pulling of older messages on startup from the topic.
+// This would be used for not losing client request history on
+// restart.
+func WithInitLoadOffset(offset time.Duration) func(*RedisBroker) {
+	return func(rb *RedisBroker) {
+		rb.initialLoadOffset = offset
+	}
+}
+
 // Publish publishes a message to a Redis stream
 func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
 	values := map[string]interface{}{
@@ -57,8 +72,9 @@ func (r *RedisBroker) Publish(ctx context.Context, message Message) error {
 
 // Consume listens to messages on a Redis stream and processes them with handlerFunc
 func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) error {
-	// The 'lastMessageID' is initially set to '$' for new messages.
-	var lastMessageID = "$"
+
+	// Format it as needed for your message fetching system. Here it's formatted as Unix time, but you might need a different format.
+	lastMessageID := r.loadInitialMessageID()
 
 	for {
 		// Check the context before a new loop iteration starts
@@ -71,7 +87,7 @@ func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) er
 		messages, err := r.client.XRead(ctx, &redis.XReadArgs{
 			Streams: []string{r.stream, lastMessageID},
 			Count:   10, // Define how many messages you want to retrieve at once
-			Block:   0,  // Setting the block time to 0 makes the XRead command non-blocking
+			Block:   0,
 		}).Result()
 
 		if err != nil {
@@ -97,4 +113,17 @@ func (r *RedisBroker) Consume(ctx context.Context, handlerFunc func(Message)) er
 			}
 		}
 	}
+}
+
+func (r *RedisBroker) loadInitialMessageID() string {
+	lastMessageID := "$"
+
+	if r.initialLoadOffset > 0 {
+		// Calculate the timestamp for one minute ago
+		oneMinuteAgo := time.Now().Add(-1 * r.initialLoadOffset)
+
+		lastMessageID = strconv.FormatInt(oneMinuteAgo.Unix(), 10)
+	}
+
+	return lastMessageID
 }

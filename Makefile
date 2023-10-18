@@ -9,12 +9,12 @@ build:
 	echo "Building the 'web' service..."
 	docker build -t $(IMAGE_NAME):$(VERSION) .
 
-redeploy:
-	make build
-	echo "Redeploying the 'web' service..."
-	docker stack rm exampleweb
-	sleep 5
-	docker stack deploy -c docker-compose.yml exampleweb
+restart.web:
+	echo "Restarting the 'web' service..."
+	docker service update --force exampleweb_web
+
+deploy:
+ 	docker stack deploy -c docker-compose.yml exampleweb
 
 loadtest:
 	echo "Running load test..."
