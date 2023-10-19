@@ -12,6 +12,7 @@ The library also provides a way to configure the RateBroker with various options
 - NTP server support for accurate time synchronization
 - Message broker integration for distributed rate limiting
 - In-memory caching for efficient rate limit tracking
+- This repo also provides the [Limiter](https://github.com/yourusername/yourproject/tree/main/limiter) subpackage for rate limiting functionality
 
 ## Usage
 
