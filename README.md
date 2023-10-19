@@ -36,25 +36,16 @@ Rate Broker is best used in server side applications versus client side applicat
 
 ### Non Distributed Example
 
-First, import the `ratebroker` package in your Go code:
-
 ```go
 import "github.com/parkerroan/ratebroker"
-```
 
-Then, create a new RateBroker with the desired options:
-
-```go
 // create a rate broker with max rate of 100 req / min
 rb := ratebroker.NewRateBroker(
     ratebroker.WithMaxRequests(100),
     ratebroker.WithWindow(1 * time.Minute),
 )
-```
 
-You can then use the `TryAccept` method to check if a new request should be accepted based on the current rate limit:
-
-```go
+// You can then use the `TryAccept` method to check if a new request should be accepted based on the current rate limit:
 ok, details := rb.TryAccept(context.Background(), "user1")
 if !ok {
     log.Printf("Rate limit exceeded. Max requests: %d, Window: %s", details.MaxRequests, details.Window)
@@ -96,6 +87,7 @@ func main() {
 		ratebroker.WithBroker(redisBroker),
 		ratebroker.WithMaxRequests(cfg.MaxRequests),
 		ratebroker.WithWindow(cfg.Window),
+        // ratebroker.WithNTPServer("pool.ntp.org") Optional NTP server feature 
 	)
 
 	ctx := context.Background()
