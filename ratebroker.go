@@ -241,6 +241,11 @@ func (rb *RateBroker) brokerHandleFunc(message Message) {
 		return
 	}
 
+	if message.Timestamp.Before(rb.Now().Add(-1 * rb.window)) {
+		slog.Warn("message too old, ignoring", slog.Any("message", message))
+		return
+	}
+
 	limit := rb.getLimiter(message.Key)
 	if limit == nil {
 		limit = rb.newLimiterFunc(rb.maxRequests, rb.window)
@@ -248,7 +253,6 @@ func (rb *RateBroker) brokerHandleFunc(message Message) {
 	}
 
 	limit.Accept(message.Timestamp)
-
 }
 
 func (rb *RateBroker) getLimiter(key string) limiter.Limiter {

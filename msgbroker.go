@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -118,7 +119,7 @@ func (r *RedisMessageBroker) Consume(ctx context.Context, handlerFunc func(Messa
 		// 'Count' can be adjusted based on how many messages we want to process per iteration.
 		messages, err := r.client.XRead(ctx, &redis.XReadArgs{
 			Streams: []string{r.stream, lastMessageID},
-			Count:   10, // Define how many messages you want to retrieve at once
+			Count:   100, // Define how many messages you want to retrieve at once
 			Block:   0,
 		}).Result()
 
@@ -129,6 +130,9 @@ func (r *RedisMessageBroker) Consume(ctx context.Context, handlerFunc func(Messa
 			continue
 		}
 
+		// setup a wait group to wait for all messages to be processed
+		// before moving on to the next iteration of x-100 routines
+		var wg sync.WaitGroup
 		// Process messages if any.
 		for _, message := range messages {
 			for _, xMessage := range message.Messages {
@@ -141,12 +145,16 @@ func (r *RedisMessageBroker) Consume(ctx context.Context, handlerFunc func(Messa
 				}
 
 				// Call the handler function to process the message
-				handlerFunc(msg)
-
+				go func() {
+					wg.Add(1)
+					defer wg.Done()
+					handlerFunc(msg)
+				}()
 				// Update lastMessageID to acknowledge processing.
 				lastMessageID = xMessage.ID
 			}
 		}
+		wg.Wait()
 	}
 }
 

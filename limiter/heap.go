@@ -63,9 +63,9 @@ func NewHeapLimiterConstructorFunc() func(int, time.Duration) Limiter {
 	}
 }
 
-// NewHeapLimiter
+// NewHeapLimiter returns a new HeapLimiter.
 func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
-	pq := make(priorityQueue, 0, size)
+	pq := make(priorityQueue, 0, size*10)
 	heap.Init(&pq)
 	return &HeapLimiter{
 		pq:     pq,
@@ -74,7 +74,7 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 	}
 }
 
-// TryAccept implements the Limiter interface for the HeapLimiter.
+// Try implements the Limiter interface for the HeapLimiter.
 // This is used to check if the request is within the rate limits.
 func (hl *HeapLimiter) Try(now time.Time) bool {
 	hl.mutex.Lock()
@@ -124,7 +124,7 @@ func (hl *HeapLimiter) try(now time.Time) bool {
 	}
 
 	// Check if there's room for more requests.
-	if hl.pq.Len() >= cap(hl.pq) {
+	if hl.pq.Len() >= hl.size {
 		// The heap is full, i.e., we've reached the rate limit.
 		return false
 	}

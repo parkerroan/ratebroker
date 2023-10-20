@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/parkerroan/ratebroker"
+	"github.com/parkerroan/ratebroker/limiter"
 
-	"github.com/gorilla/mux"
 	"golang.org/x/exp/slog"
 )
 
@@ -46,6 +47,7 @@ func main() {
 
 	// Create a rate broker w/ ring limiter
 	rateBroker := ratebroker.NewRateBroker(
+		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
 		ratebroker.WithBroker(redisBroker),
 		ratebroker.WithMaxRequests(cfg.MaxRequests),
 		ratebroker.WithWindow(cfg.Window),
@@ -57,17 +59,25 @@ func main() {
 	// This function generates a key (in this case, the client's IP address)
 	// that the rate limiter uses to identify unique clients.
 	keyGetter := func(r *http.Request) string {
-		// You might want to improve this method to handle IP-forwarding, etc.
-		return "test-user"
+		// Get a custom header X-User-ID from the request
+		// If it doesn't exist, use the remote address
+		userKey := r.Header.Get("X-User-ID")
+		if userKey == "" {
+			userKey = r.RemoteAddr
+		}
+		return userKey
 	}
 
-	// Create a new router
-	r := mux.NewRouter() // or http.NewServeMux()
+	// Use the default mux as the router for pprof
+	// r := http.NewServeMux()
 
-	// Add the logging middleware first.
+	// Create a new router with mux
+	r := mux.NewRouter()
+
+	// Add the logging middleware for gorilla/mux
 	r.Use(LoggingMiddleware)
 
-	// Create a new rate limited HTTP handler using your middleware
+	// Middleware to rate limit requests for gorilla/mux
 	r.Use(ratebroker.HttpMiddleware(rateBroker, keyGetter))
 
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +85,13 @@ func main() {
 		w.Write([]byte("Hello, World!"))
 	})
 
+	// // Add the logging middleware first for net/http
+	// wrappedHandler := LoggingMiddleware(r)
+
+	// // Create a new rate limited HTTP handler using your middleware for net/http
+	// wrappedHandler = ratebroker.HttpMiddleware(rateBroker, keyGetter)(r)
+
+	// log.Fatal(http.ListenAndServe(":8080", wrappedHandler)) // net/http
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
