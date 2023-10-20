@@ -1,3 +1,5 @@
+//go:build integration
+
 package ratebroker_test
 
 import (

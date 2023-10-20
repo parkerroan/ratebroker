@@ -1,3 +1,5 @@
+//go:build integration
+
 package ratebroker_test
 
 import (
@@ -14,6 +16,7 @@ import (
 func TestRateLimiter_WithBroker(t *testing.T) {
 	// Define the configuration for each test case.
 	testCases := []struct {
+		stream           string
 		description      string
 		limiterFunc      ratebroker.NewLimiterFunc
 		window           time.Duration
@@ -23,37 +26,41 @@ func TestRateLimiter_WithBroker(t *testing.T) {
 		expectedDenials  int
 		sleepBetweenReqs time.Duration // Sleep duration between requests.
 	}{
-		// {
-		// 	description:      "Ring limiter should deny expected number of requests",
-		// 	limiterFunc:      limiter.NewRingLimiterConstructorFunc(),
-		// 	numRequests:      20,
-		// 	expectedDenials:  20, // Adjust based on your expected scenario
-		// 	preloadTopicNum:  20,
-		// 	sleepBetweenReqs: 20 * time.Millisecond,
-		// 	maxRequests:      5,
-		// 	window:           5 * time.Second,
-		// },
-		// {
-		// 	description:      "Ring limiter should deny expected number of requests",
-		// 	limiterFunc:      limiter.NewRingLimiterConstructorFunc(),
-		// 	numRequests:      20,
-		// 	expectedDenials:  17, // Adjust based on your expected scenario
-		// 	preloadTopicNum:  2,
-		// 	sleepBetweenReqs: 20 * time.Millisecond,
-		// 	maxRequests:      5,
-		// 	window:           5 * time.Second,
-		// },
-		// {
-		// 	description:      "Heap limiter should deny expected number of requests",
-		// 	limiterFunc:      limiter.NewHeapLimiterConstructorFunc(),
-		// 	numRequests:      20,
-		// 	expectedDenials:  20, // Adjust based on your expected scenario
-		// 	preloadTopicNum:  20,
-		// 	sleepBetweenReqs: 20 * time.Millisecond,
-		// 	maxRequests:      5,
-		// 	window:           5 * time.Second,
-		// },
 		{
+			stream:           "test-stream1",
+			description:      "Ring limiter should deny expected number of requests",
+			limiterFunc:      limiter.NewRingLimiterConstructorFunc(),
+			numRequests:      20,
+			expectedDenials:  20, // Adjust based on your expected scenario
+			preloadTopicNum:  20,
+			sleepBetweenReqs: 20 * time.Millisecond,
+			maxRequests:      5,
+			window:           5 * time.Second,
+		},
+		{
+			stream:           "test-stream2",
+			description:      "Ring limiter should deny expected number of requests",
+			limiterFunc:      limiter.NewRingLimiterConstructorFunc(),
+			numRequests:      20,
+			expectedDenials:  17, // Adjust based on your expected scenario
+			preloadTopicNum:  2,
+			sleepBetweenReqs: 20 * time.Millisecond,
+			maxRequests:      5,
+			window:           5 * time.Second,
+		},
+		{
+			stream:           "test-stream3",
+			description:      "Heap limiter should deny expected number of requests",
+			limiterFunc:      limiter.NewHeapLimiterConstructorFunc(),
+			numRequests:      20,
+			expectedDenials:  20, // Adjust based on your expected scenario
+			preloadTopicNum:  20,
+			sleepBetweenReqs: 20 * time.Millisecond,
+			maxRequests:      5,
+			window:           5 * time.Second,
+		},
+		{
+			stream:           "test-stream4",
 			description:      "Heap limiter should deny expected number of requests",
 			limiterFunc:      limiter.NewHeapLimiterConstructorFunc(),
 			numRequests:      20,
@@ -69,7 +76,7 @@ func TestRateLimiter_WithBroker(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			// Context with timeout to avoid hanging tests indefinitely
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
 			//connect to redis
@@ -78,7 +85,7 @@ func TestRateLimiter_WithBroker(t *testing.T) {
 			})
 
 			// Create a new broker
-			redisBroker := ratebroker.NewRedisMessageBroker(rdb, ratebroker.WithStream("test-stream"))
+			redisBroker := ratebroker.NewRedisMessageBroker(rdb, ratebroker.WithStream(tc.stream))
 
 			rb := ratebroker.NewRateBroker(
 				ratebroker.WithBroker(redisBroker),
@@ -102,8 +109,6 @@ func TestRateLimiter_WithBroker(t *testing.T) {
 					t.Errorf("Failed to publish message: %v", err)
 				}
 			}
-
-			time.Sleep(1 * time.Second)
 
 			denied := 0
 			for i := 0; i < tc.numRequests; i++ {

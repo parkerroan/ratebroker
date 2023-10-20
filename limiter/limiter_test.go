@@ -1,3 +1,5 @@
+//go:build unit
+
 package limiter_test
 
 import (
