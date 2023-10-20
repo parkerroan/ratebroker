@@ -2,6 +2,18 @@
 
 The "limiter" subpackage provides rate limiting functionality with two different implementations: `RingLimiter` and `HeapLimiter`.
 
+`HeapLimiter` sorts on insertion based on the value (timestamp) while `RingLimiter` assumed order based on insertion. So this would be used when you insertions may be asynchronous and not in order and you need every bit of accuracy. Because of the extra operations, heap is more expensive. In most cases `RingLimiter` will be faster and sufficient. 
+
+Both methods are very fast, here is benchmark comparing them: 
+
+```shell
+goos: darwin
+goarch: arm64
+pkg: github.com/parkerroan/ratebroker/limiter
+BenchmarkRingLimiter-10    	29388708	        40.32 ns/op	      24 B/op	       1 allocs/op
+BenchmarkHeapLimiter-10    	15745207	        71.66 ns/op	      80 B/op	       1 allocs/op
+```
+
 ## Features
 
 - Two rate limiting strategies: Ring Buffer and Min Heap.
