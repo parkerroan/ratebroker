@@ -59,9 +59,9 @@ func NewRateBroker(opts ...Option) *RateBroker {
 	// Create a new cache with a high size limit (adjust as needed) if one is not provided
 	if rb.cache == nil {
 		cache, err := ristretto.NewCache(&ristretto.Config{
-			NumCounters: 1e7,     // Num keys to track frequency of (10M).
-			MaxCost:     1 << 30, // Maximum cost of cache (1GB).
-			BufferItems: 64,      // Number of keys per Get buffer.
+			NumCounters: 10000000, // Num keys to track frequency of (10M).
+			MaxCost:     1000000,  // Maximum cost of cache (1GB).
+			BufferItems: 64,       // Number of keys per Get buffer.
 		})
 		if err != nil {
 			log.Fatal(err) // handle error according to your strategy
@@ -219,7 +219,7 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg Message) error {
 	}
 
 	go func(msg Message) {
-		slog.Info("publishing message", slog.Any("message", msg))
+		slog.Debug("publishing message", slog.Any("message", msg))
 		publishCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Set your own timeout duration
 		defer cancel()
 		defer deferFunc()
@@ -234,7 +234,7 @@ func (rb *RateBroker) publishEvent(ctx context.Context, msg Message) error {
 
 // BrokerHandleFunc is passed into the broker to handle incoming messages
 func (rb *RateBroker) brokerHandleFunc(message Message) {
-	slog.Info("message received", slog.Any("message", message))
+	slog.Debug("message received", slog.Any("message", message))
 
 	//return early as we don't want to process our own messages
 	if message.BrokerID == rb.id {

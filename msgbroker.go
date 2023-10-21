@@ -145,8 +145,8 @@ func (r *RedisMessageBroker) Consume(ctx context.Context, handlerFunc func(Messa
 				}
 
 				// Call the handler function to process the message
+				wg.Add(1)
 				go func() {
-					wg.Add(1)
 					defer wg.Done()
 					handlerFunc(msg)
 				}()
