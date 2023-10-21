@@ -11,6 +11,19 @@ import (
 	"github.com/parkerroan/ratebroker/limiter"
 )
 
+// Benchmark the RateBroker
+func BenchmarkRateBroker_Memory(b *testing.B) {
+	rb := ratebroker.NewRateBroker(
+		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
+		ratebroker.WithWindow(2*time.Second),
+		ratebroker.WithMaxRequests(5),
+	)
+
+	for i := 0; i < b.N; i++ {
+		rb.TryAccept(context.Background(), "user1")
+	}
+}
+
 func TestRateLimiter(t *testing.T) {
 	// Define the configuration for each test case.
 	testCases := []struct {
