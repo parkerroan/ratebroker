@@ -5,6 +5,7 @@ package ratebroker_test
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -12,6 +13,63 @@ import (
 	"github.com/parkerroan/ratebroker"
 	"github.com/parkerroan/ratebroker/limiter"
 )
+
+func BenchmarkRateBroker_SingleUser_WithBroker(b *testing.B) {
+	// Context with timeout to avoid hanging tests indefinitely
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	//connect to redis
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	// Create a new broker
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb, ratebroker.WithStream("benchmark-test-stream"))
+	rb := ratebroker.NewRateBroker(
+		ratebroker.WithMaxThreads(1000),
+		ratebroker.WithBroker(redisBroker),
+		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
+		ratebroker.WithWindow(2*time.Second),
+		ratebroker.WithMaxRequests(5),
+	)
+
+	rb.Start(ctx)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.TryAccept(context.Background(), "user1")
+	}
+}
+
+func BenchmarkRateBroker_MultiUser_WithBroker(b *testing.B) {
+	// Context with timeout to avoid hanging tests indefinitely
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	//connect to redis
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	// Create a new broker
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb, ratebroker.WithStream("benchmark-test-stream"))
+	rb := ratebroker.NewRateBroker(
+		ratebroker.WithMaxThreads(1000),
+		ratebroker.WithBroker(redisBroker),
+		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
+		ratebroker.WithWindow(2*time.Second),
+		ratebroker.WithMaxRequests(5),
+	)
+
+	rb.Start(ctx)
+	rand.Seed(time.Now().UnixNano())
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		//pick a random int 0-9999
+		rb.TryAccept(context.Background(), fmt.Sprintf("user%v", rand.Intn(10000)))
+	}
+}
 
 func TestRateLimiter_WithBroker(t *testing.T) {
 	// Define the configuration for each test case.
