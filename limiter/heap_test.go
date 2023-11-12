@@ -1,15 +1,33 @@
-//go:build unit
-
-package limiter
+package limiter_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/parkerroan/ratebroker/limiter"
 )
 
-func TestHeapLimiter_TryAccept(t *testing.T) {
+func BenchmarkUnitHeapLimiter(b *testing.B) {
+	hl := limiter.NewHeapLimiter(10, time.Second)
+	now := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		hl.TryAccept(now)
+	}
+}
+
+func BenchmarkUnitHeapLimiter_TryAcceptV2(b *testing.B) {
+	hl := limiter.NewHeapLimiter(10, time.Second)
+	now := time.Now()
+
+	for i := 0; i < b.N; i++ {
+		hl.TryAcceptWithInfo(now)
+	}
+}
+
+func TestUnitHeapLimiter_TryAccept(t *testing.T) {
 	// Create a new RingLimiter with size 3 and window 1 second.
-	hl := NewHeapLimiter(3, time.Second)
+	hl := limiter.NewHeapLimiter(3, time.Second)
 
 	// Check that the first 3 requests are allowed.
 	if !hl.TryAccept(time.Now()) {

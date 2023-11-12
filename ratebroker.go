@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/parkerroan/ratebroker/limiter"
 	"golang.org/x/exp/slog"
-	"golang.org/x/sync/semaphore"
 )
 
 // Option is a function that can be passed into NewRateBroker to configure the RateBroker.
@@ -32,8 +31,6 @@ type RateBroker struct {
 	maxRequests    int
 	window         time.Duration
 	cache          *expirable.LRU[string, limiter.Limiter]
-	maxThreads     int
-	sem            *semaphore.Weighted
 	ntpClient      *ntp.Response // add an NTP client field
 	ntpServer      string
 }
@@ -93,15 +90,6 @@ func WithMaxRequests(max int) Option {
 	}
 }
 
-// WithMaxThreads sets the maximum number of threads allowed for publishing events
-// to the message broker.
-func WithMaxThreads(maxThreads int) Option {
-	return func(rb *RateBroker) {
-		rb.maxThreads = maxThreads
-		rb.sem = semaphore.NewWeighted(int64(maxThreads))
-	}
-}
-
 // WithWindow sets the time window for the RateBroker.
 func WithWindow(window time.Duration) Option {
 	return func(rb *RateBroker) {
@@ -136,13 +124,7 @@ func (rb *RateBroker) Start(ctx context.Context) {
 		return
 	}
 
-	go func() {
-		err := rb.broker.Consume(ctx, rb.brokerHandleFunc)
-		if err != nil {
-			slog.Error("error consuming messages", slog.Any("error", err.Error()))
-		}
-	}()
-
+	rb.broker.Start(ctx, rb.brokerHandleFunc)
 }
 
 // Now tries to get the time from the NTP server if available; otherwise, it uses the local time.
@@ -165,24 +147,17 @@ func (rb *RateBroker) Now() time.Time {
 }
 
 // TryAccept is a method on RateLimiter that checks a new request against the current rate limit.
-func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDetails) {
+func (rb *RateBroker) TryAccept(ctx context.Context, key string) bool {
 	now := rb.Now()
 
-	var userLimit limiter.Limiter
-	if userLimit = rb.getLimiter(key); userLimit == nil {
-		userLimit = rb.newLimiterFunc(rb.maxRequests, rb.window)
-		rb.cache.Add(key, userLimit)
-	}
-
-	var limitDetails LimitDetails
-	limitDetails.MaxRequests, limitDetails.Window = userLimit.LimitDetails()
+	userLimit := rb.getUserLimit(key)
 
 	if allow := userLimit.TryAccept(now); !allow {
-		return false, limitDetails
+		return false
 	}
 
 	if rb.broker != nil {
-		message := Message{
+		message := RateEvent{
 			BrokerID:  rb.id,
 			Event:     RequestAccepted,
 			Timestamp: now,
@@ -191,43 +166,64 @@ func (rb *RateBroker) TryAccept(ctx context.Context, key string) (bool, LimitDet
 
 		err := rb.publishEvent(ctx, message)
 		if err != nil {
-			slog.Error("error publishing message", slog.Any("error", err.Error()))
+			slog.Error("TryAccept error publishing message", slog.Any("error", err.Error()))
 		}
 	}
 
-	return true, limitDetails
+	return true
 }
 
-func (rb *RateBroker) publishEvent(ctx context.Context, msg Message) error {
-	deferFunc := func() {}
-	if rb.sem != nil {
-		deferFunc = func() {
-			rb.sem.Release(1)
+// TryAcceptWithInfo is a method on RateLimiter that checks a new request against the current rate limit.
+func (rb *RateBroker) TryAcceptWithInfo(ctx context.Context, key string) (bool, limiter.RateLimitInfo) {
+	now := rb.Now()
+
+	userLimit := rb.getUserLimit(key)
+
+	allow, info := userLimit.TryAcceptWithInfo(now)
+	if !allow {
+		return false, info
+	}
+
+	if rb.broker != nil {
+		message := RateEvent{
+			BrokerID:  rb.id,
+			Event:     RequestAccepted,
+			Timestamp: now,
+			Key:       key,
 		}
-		if err := rb.sem.Acquire(ctx, 1); err != nil {
-			slog.Error("Failed to acquire semaphore", slog.Any("error", err.Error()))
-			return err
+
+		err := rb.publishEvent(ctx, message)
+		if err != nil {
+			slog.Error("TryAccept error publishing message", slog.Any("error", err.Error()))
 		}
 	}
 
-	go func(msg Message) {
-		slog.Debug("publishing message", slog.Any("message", msg))
-		// using background context to avoid http request cancellation
-		// since this is async, the http request could finish prior to the broker publish
-		publishCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Set your own timeout duration
-		defer cancel()
-		defer deferFunc()
-		err := rb.broker.Publish(publishCtx, msg)
-		if err != nil {
-			slog.Error("error broker publish", slog.Any("error", err.Error()))
-		}
-	}(msg)
+	return true, info
+}
+
+func (rb *RateBroker) getUserLimit(key string) limiter.Limiter {
+	var userLimit limiter.Limiter
+	if userLimit = rb.getLimiter(key); userLimit == nil {
+		userLimit = rb.newLimiterFunc(rb.maxRequests, rb.window)
+		rb.cache.Add(key, userLimit)
+	}
+	return userLimit
+}
+
+func (rb *RateBroker) publishEvent(ctx context.Context, msg RateEvent) error {
+	publishCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Set your own timeout duration
+	defer cancel()
+
+	err := rb.broker.Publish(publishCtx, msg)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 // BrokerHandleFunc is passed into the broker to handle incoming messages
-func (rb *RateBroker) brokerHandleFunc(message Message) {
+func (rb *RateBroker) brokerHandleFunc(message RateEvent) {
 	slog.Debug("message received", slog.Any("message", message))
 
 	//return early as we don't want to process our own messages
@@ -250,15 +246,11 @@ func (rb *RateBroker) brokerHandleFunc(message Message) {
 }
 
 func (rb *RateBroker) getLimiter(key string) limiter.Limiter {
-	var userLimiter limiter.Limiter
-
 	// Try to get the limiter from cache
-	item, found := rb.cache.Get(key)
+	limiter, found := rb.cache.Get(key)
 	if !found {
 		return nil
 	}
 
-	// Assert the type to your limiter interface or struct
-	userLimiter = item.(limiter.Limiter)
-	return userLimiter
+	return limiter
 }

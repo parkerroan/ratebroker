@@ -1,5 +1,3 @@
-//go:build unit
-
 package ratebroker_test
 
 import (
@@ -8,14 +6,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/parkerroan/ratebroker"
 	"github.com/parkerroan/ratebroker/limiter"
+	"github.com/redis/go-redis/v9"
 )
 
 // ExampleHttpMiddleware shows how to use the middleware with a standard net/http handler or mux.
-func ExampleHttpMiddleware() {
+func ExampleHttpMiddleware_gorillaMux() {
 	// Initialize components of your application here
 	rdb := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
@@ -45,7 +43,50 @@ func ExampleHttpMiddleware() {
 	r := mux.NewRouter() // or http.NewServeMux()
 
 	// Create a new rate limited HTTP handler using your middleware
-	r.Use(ratebroker.HttpMiddleware(rateBroker, keyGetter))
+	r.Use(ratebroker.HTTPMiddleware(rateBroker, keyGetter))
+
+	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+// ExampleHttpMiddleware shows how to use the middleware with a standard net/http handler or mux.
+func ExampleHttpMiddleware_standardLib() {
+	// Initialize components of your application here
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+
+	// Create instances of your broker and limiter
+	redisBroker := ratebroker.NewRedisMessageBroker(rdb)
+
+	// Create a rate broker w/ ring limiter
+	rateBroker := ratebroker.NewRateBroker(
+		ratebroker.WithBroker(redisBroker),
+		ratebroker.WithMaxRequests(10),
+		ratebroker.WithWindow(10*time.Second),
+	)
+
+	ctx := context.Background()
+	rateBroker.Start(ctx)
+
+	// This function generates a key (in this case, the client's IP address)
+	// that the rate limiter uses to identify unique clients.
+	keyGetter := func(r *http.Request) string {
+		// You might want to improve this method to handle IP-forwarding, etc.
+		return r.RemoteAddr
+	}
+
+	// Create a new router
+	r := http.NewServeMux()
+
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Handle the request, i.e., serve content, call other functions, etc.
+		w.Write([]byte("Hello, World!"))
+	})
+
+	// Create a new rate limited HTTP handler using your middleware for net/http
+	wrappedHandler := ratebroker.HTTPMiddleware(rateBroker, keyGetter)(r)
+
+	log.Fatal(http.ListenAndServe(":8080", wrappedHandler))
 }
 
 // ExampleRateBroker_redisBroker shows how to create a rate broker with a Redis broker and ring limiter.
@@ -71,7 +112,7 @@ func ExampleRateBroker_redisBroker() {
 	rateBroker.Start(ctx)
 
 	for i := 0; i < 20; i++ {
-		allowed, details := rateBroker.TryAccept(ctx, "userKey")
+		allowed, details := rateBroker.TryAcceptWithInfo(ctx, "userKey")
 		log.Printf("Request %v allowed: %v details: %v", i, allowed, details)
 	}
 }
@@ -92,7 +133,7 @@ func ExampleRateBroker_localInstance() {
 	//rateBroker.Start(ctx)
 
 	for i := 0; i < 20; i++ {
-		allowed, details := rateBroker.TryAccept(ctx, "userKey")
+		allowed, details := rateBroker.TryAcceptWithInfo(ctx, "userKey")
 		log.Printf("Request %v allowed: %v details: %v", i, allowed, details)
 	}
 }

@@ -2,6 +2,7 @@ version: '3.8'
 services:
   web:
     image: local-images/exampleweb:1.0.0
+    entrypoint: ./classic
     environment:
       - REDIS_URL=redis:6379
       - MAX_REQUESTS=100

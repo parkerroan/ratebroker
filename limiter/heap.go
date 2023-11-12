@@ -74,14 +74,6 @@ func NewHeapLimiter(size int, window time.Duration) *HeapLimiter {
 	}
 }
 
-// Try implements the Limiter interface for the HeapLimiter.
-// This is used to check if the request is within the rate limits.
-func (hl *HeapLimiter) Try(now time.Time) bool {
-	hl.mutex.Lock()
-	defer hl.mutex.Unlock()
-	return hl.try(now)
-}
-
 // Accept implements the Limiter interface for the HeapLimiter.
 // This is used when the request is accepted and added to the heap.
 func (hl *HeapLimiter) Accept(now time.Time) {
@@ -102,6 +94,51 @@ func (hl *HeapLimiter) TryAccept(now time.Time) bool {
 	}
 
 	return false
+}
+
+// TryAccept checks if the request is within the rate limits and if it is, it's added to the heap.
+// It returns RateLimitInfo with details about the current rate limit state.
+func (hl *HeapLimiter) TryAcceptWithInfo(now time.Time) (bool, RateLimitInfo) {
+	hl.mutex.Lock()
+	defer hl.mutex.Unlock()
+
+	// First, remove any outdated requests outside of the current window.
+	for hl.pq.Len() > 0 && now.Sub(hl.pq[0].timestamp) > hl.window {
+		heap.Pop(&hl.pq)
+	}
+
+	// Prepare the information to return.
+	info := RateLimitInfo{
+		Remaining: hl.size - hl.pq.Len(), // Remaining requests that can be accepted.
+		Limit:     hl.size,               // Maximum number of requests in the window.
+	}
+
+	// If the heap is not full, we can accept the request.
+	if info.Remaining > 0 {
+		// Accept the request by pushing it to the priority queue.
+		hl.accept(now)
+
+		// Update the remaining number of requests after accepting the current one.
+		info.Remaining--
+
+		// If there are multiple requests, calculate the time until the rate limit resets
+		// based on the oldest timestamp in the heap.
+		if hl.pq.Len() > 1 {
+			oldest := hl.pq[0].timestamp
+			info.Reset = oldest.Add(hl.window).Sub(now)
+		} else {
+			// If it's the only request, the reset time is the window duration.
+			info.Reset = hl.window
+		}
+
+		return true, info
+	}
+
+	// If we're here, it means the limit has been reached. Calculate the reset time based on the oldest request.
+	oldest := hl.pq[0].timestamp
+	info.Reset = oldest.Add(hl.window).Sub(now)
+
+	return false, info
 }
 
 // LimitDetails returns the size and window of the limiter.

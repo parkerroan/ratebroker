@@ -1,21 +1,19 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
+	"strconv"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/go-redis/redis_rate/v10"
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
-	"github.com/parkerroan/ratebroker"
-	"github.com/parkerroan/ratebroker/limiter"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/gorilla/mux"
 	"golang.org/x/exp/slog"
 )
 
@@ -27,10 +25,6 @@ type Config struct {
 }
 
 func main() {
-	// Handle SIGINT (CTRL+C) gracefully.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
 	// Load .env file from given path. We're assuming it's in the current directory.
 	// Don't forget to check for errors.
 	loadEnvFile()
@@ -47,55 +41,22 @@ func main() {
 		Addr: cfg.RedisURL, // "localhost:6379"
 	})
 
-	// Create instances of your broker and limiter
-	redisBroker := ratebroker.NewRedisMessageBroker(rdb)
+	limiter := redis_rate.NewLimiter(rdb)
 
-	// Create a rate broker w/ ring limiter
-	rateBroker := ratebroker.NewRateBroker(
-		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
-		ratebroker.WithBroker(redisBroker),
-		ratebroker.WithMaxRequests(cfg.MaxRequests),
-		ratebroker.WithWindow(cfg.Window),
-	)
+	// Create a new router
+	r := mux.NewRouter() // or http.NewServeMux()
 
-	rateBroker.Start(ctx)
-
-	// This function generates a key (in this case, the client's IP address)
-	// that the rate limiter uses to identify unique clients.
-	keyGetter := func(r *http.Request) string {
-		// Get a custom header X-User-ID from the request
-		// If it doesn't exist, use the remote address
-		userKey := r.Header.Get("X-User-ID")
-		if userKey == "" {
-			userKey = r.RemoteAddr
-		}
-		return userKey
-	}
-
-	// Use the default mux as the router for pprof
-	// r := http.NewServeMux()
-
-	// Create a new router with mux
-	r := mux.NewRouter()
-
-	// Add the logging middleware for gorilla/mux
+	// Add the logging middleware first.
 	r.Use(LoggingMiddleware)
 
-	// Middleware to rate limit requests for gorilla/mux
-	r.Use(ratebroker.HTTPMiddleware(rateBroker, keyGetter))
+	// Create a new rate limited HTTP handler using your middleware
+	r.Use(RedisRateLimitMiddleware(limiter))
 
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Handle the request, i.e., serve content, call other functions, etc.
 		w.Write([]byte("Hello, World!"))
 	})
 
-	// // Add the logging middleware first for net/http
-	// wrappedHandler := LoggingMiddleware(r)
-
-	// // Create a new rate limited HTTP handler using your middleware for net/http
-	// wrappedHandler = ratebroker.HttpMiddleware(rateBroker, keyGetter)(r)
-
-	// log.Fatal(http.ListenAndServe(":8080", wrappedHandler)) // net/http
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
@@ -131,6 +92,40 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 			r.UserAgent(),
 		)
 	})
+}
+
+func RedisRateLimitMiddleware(limiter *redis_rate.Limiter) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userKey := r.Header.Get("X-User-ID")
+			if userKey == "" {
+				userKey = r.RemoteAddr
+			}
+
+			res, err := limiter.Allow(r.Context(), userKey, redis_rate.PerSecond(10))
+			if err != nil {
+				slog.Error("Error checking rate limit", slog.Any("error", err.Error()))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			h := w.Header()
+			h.Set("RateLimit-Remaining", strconv.Itoa(res.Remaining))
+
+			if res.Allowed == 0 {
+				// We are rate limited.
+
+				seconds := int(res.RetryAfter / time.Second)
+				h.Set("RateLimit-RetryAfter", strconv.Itoa(seconds))
+				w.WriteHeader(http.StatusTooManyRequests)
+				// Stop processing and return the error.
+				return
+			}
+
+			// Continue to the next middleware or handler.
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func loadEnvFile() {

@@ -16,11 +16,11 @@ with open(log_file_path, 'a', newline='') as logfile:
 
 class WebsiteUser(HttpUser):
     host = "http://localhost:8080"
-    wait_time = between(.04, .05)  # ~20 rps
+    wait_time = between(.02, .03)  # ~50 rps
 
     def on_start(self):
-        # self.user_id = str(uuid.uuid4())  # Replace with actual user data or parameterize as needed.
-        self.user_id = "user-1" 
+        self.user_id = str(uuid.uuid4())  # Replace with actual user data or parameterize as needed.
+        # self.user_id = "user-1" 
 
     @task
     def hit_endpoint(self):

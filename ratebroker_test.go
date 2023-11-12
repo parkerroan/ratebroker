@@ -1,9 +1,9 @@
-//go:build unit
-
 package ratebroker_test
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 )
 
 // Benchmark the RateBroker
-func BenchmarkRateBroker_Memory(b *testing.B) {
+func BenchmarkUnitRateBroker_Memory(b *testing.B) {
 	rb := ratebroker.NewRateBroker(
 		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
 		ratebroker.WithWindow(2*time.Second),
@@ -24,7 +24,20 @@ func BenchmarkRateBroker_Memory(b *testing.B) {
 	}
 }
 
-func TestRateLimiter(t *testing.T) {
+// Benchmark the RateBroker with multiple users
+func BenchmarkUnitRateBroker_Memory_MultiUser(b *testing.B) {
+	rb := ratebroker.NewRateBroker(
+		ratebroker.WithLimiterContructorFunc(limiter.NewRingLimiterConstructorFunc()),
+		ratebroker.WithWindow(2*time.Second),
+		ratebroker.WithMaxRequests(5),
+	)
+
+	for i := 0; i < b.N; i++ {
+		rb.TryAccept(context.Background(), fmt.Sprintf("user%v", rand.Intn(10000)))
+	}
+}
+
+func TestUnitRateLimiter(t *testing.T) {
 	// Define the configuration for each test case.
 	testCases := []struct {
 		description      string
@@ -66,7 +79,7 @@ func TestRateLimiter(t *testing.T) {
 
 			denied := 0
 			for i := 0; i < tc.numRequests; i++ {
-				if allowed, _ := rb.TryAccept(context.Background(), "user1"); !allowed {
+				if allowed := rb.TryAccept(context.Background(), "user1"); !allowed {
 					denied++
 				}
 				time.Sleep(tc.sleepBetweenReqs)

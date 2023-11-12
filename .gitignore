@@ -21,7 +21,9 @@
 locust/venv
 locust/*.csv
 locust/__pycache__
+locust/__pycache__/*
 
 # Go workspace file
 go.work
-.env
+*.env
+
